@@ -1,5 +1,12 @@
+/* ============================================
+   globals.css (lub app/globals.css)
+   ============================================ */
+
+/* 1) Import Tailwind */
 @import "tailwindcss";
 
+/* 2) Usuń lub zakomentuj wszelkie reguły nadpisujące tło/body, jak niżej */
+/*
 :root {
   --background: #ffffff;
   --foreground: #171717;
@@ -24,3 +31,92 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+html { @apply bg-gray-50 dark:bg-gray-900; }
+body { @apply font-sans text-gray-900 dark:text-white; }
+*/
+
+/* 3) Bazowe ustawienia fonta – bez tła */
+html {
+  /* Możesz tu ustawić domyślny color: #ededed; itp. */
+}
+body {
+  font-family: Arial, Helvetica, sans-serif;
+  /* Nie ustawiamy tła tutaj – robi to klasa bg-abstract */
+}
+
+/* 4) Stylizacja scrollbara (opcjonalnie) */
+:root {
+  --glass-scrollbar-thumb: rgba(255,255,255,0.3);
+  --glass-scrollbar-track: rgba(255,255,255,0.1);
+}
+
+/* Webkit browsers */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--glass-scrollbar-track);
+  border-radius: 4px;
+  backdrop-filter: blur(4px);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--glass-scrollbar-thumb);
+  border-radius: 4px;
+  backdrop-filter: blur(4px);
+}
+
+/* Firefox */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--glass-scrollbar-thumb) var(--glass-scrollbar-track);
+}
+
+/* 5) Klasy PDF (jeśli używasz) */
+.pdf-version {
+  background: #fff !important;
+  color: #1a1a1a !important;
+}
+.pdf-version * {
+  background: #fff !important;
+  color: #1a1a1a !important;
+}
+
+/* 6) Tailwind layers – zawsze na końcu */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* 7) Neonowo‐purpurowe tło: gradient + plamy + siatka */
+.bg-abstract {
+  background-color: #0b0b2e;
+  background-image:
+    linear-gradient(
+      135deg,
+      #0b0b2e 0%,
+      #1a004f 40%,
+      #260073 75%,
+      #0b0b2e 100%
+    ),
+    radial-gradient(
+      circle at 20% 30%,
+      rgba(0, 255, 255, 0.12) 0%,
+      rgba(0, 255, 255, 0.06) 30%,
+      transparent 80%
+    ),
+    radial-gradient(
+      ellipse at 70% 50%,
+      rgba(255, 0, 255, 0.10) 0%,
+      rgba(255, 0, 255, 0.04) 25%,
+      transparent 70%
+    ),
+    url("data:image/svg+xml,%3Csvg width='40' height='40' viewBox='0 0 40 40' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' stroke='%23ffffff' stroke-opacity='0.02' stroke-width='1'%3E%3Cpath d='M40 0L0 40M0 0l40 40'/%3E%3C/g%3E%3C/svg%3E");
+  background-repeat: no-repeat, no-repeat, no-repeat, repeat;
+  background-size: cover, cover, cover, 40px 40px;
+  background-blend-mode: normal, normal, normal, overlay;
+}
+
+/* Koniec pliku globals.css */
