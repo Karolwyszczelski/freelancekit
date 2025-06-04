@@ -115,7 +115,7 @@ function SortableTask({
     <div
       ref={setNodeRef}
       style={style}
-      className="p-3 bg-white/10 backdrop-blur-md rounded-lg cursor-pointer hover:bg-white/20 transition"
+      className="p-3 bg-white/10 backdrop-blur-lg border border-white/20 rounded-lg cursor-pointer hover:bg-white/20 transition"
       onClick={onCardClick}
     >
       <div className="flex items-center gap-2 mb-1">

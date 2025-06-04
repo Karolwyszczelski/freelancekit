@@ -41,7 +41,7 @@ export default function NotificationsPanel({userId}: {userId: string}) {
   }
 
   return (
-    <div className="max-w-1xl mx-auto bg-white/10 shadow-xl rounded-3xl p-8 mt-6 backdrop-blur-2xl border border-white/20 max-w-80vh w-full max-w-[900px] mx-auto">
+    <div className="max-w-1xl mx-auto bg-gradient-to-br from-purple-900/10 to-indigo-900/10 bg-blur-20 shadow-xl rounded-3xl p-8 mt-6 backdrop-blur-2xl border border-white/20 max-w-80vh w-full max-w-[1100px] mx-auto">
       <div className="flex items-center justify-between mb-5">
         <h2 className="text-2xl font-bold text-white">Wszystkie powiadomienia</h2>
         <button

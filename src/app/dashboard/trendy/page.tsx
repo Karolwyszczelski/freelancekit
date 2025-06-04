@@ -1,253 +1,299 @@
-'use client';
+// app/dashboard/trendy/page.tsx
+'use client'
 
-import { useState, useEffect } from 'react';
-import dynamic from 'next/dynamic';
-import { supabase } from '@/lib/supabaseClient';
-import { format } from 'date-fns';
-import pl from 'date-fns/locale/pl';
-import { AnimatePresence, motion } from 'framer-motion';
-import { Info } from 'lucide-react';
-
-// Typy platformy i trybu widoku
-type Platform = 'twitter' | 'youtube' | 'tiktok' | 'instagram';
-type ViewMode = 'daily' | 'weekly' | 'monthly';
-
-// Interfejsy odczytane bezpośrednio z Supabase
-interface TrendRecordDailyDB {
-  platforma: Platform;
-  date: string;             // np. '2025-05-28'
-  trendy: {                  // tablica obiektów
-    topic: string;
-    description: string;
-    details: string;
-  }[];
-}
-
-interface TrendRecordWeeklyDB {
-  platforma: Platform;
-  week_start: string;       // np. '2025-05-26'
-  weekly_topics: {
-    topic: string;
-    description: string;
-    details: string;
-  }[];
-}
-
-interface TrendRecordMonthlyDB {
-  platforma: Platform;
-  year: number;
-  month: number;             // 1–12
-  monthly_topics: {
-    topic: string;
-    description: string;
-    details: string;
-  }[];
-}
-
-// Ujednolicony interfejs do wyświetlania na froncie
-interface TrendDisplayRecord {
-  platforma: Platform;
-  period_label: string;      // np. '28.05.2025' / 'Tydzień 22 (2025)' / 'Maj 2025'
-  trends: {                  // lista obiektów { topic, description, details }
-    topic: string;
-    description: string;
-    details: string;
-  }[];
-}
-
-// Dynamiczny import komponentu Bar z Chart.js (wyłączamy SSR)
-const Bar = dynamic(
-  () => import('react-chartjs-2').then((mod) => mod.Bar),
-  { ssr: false }
-);
-
-// Rejestracja potrzebnych elementów Chart.js
+import { useState, useEffect } from 'react'
+import { supabase } from '@/lib/supabaseClient'
+import { format } from 'date-fns'
+import pl from 'date-fns/locale/pl'
+import { AnimatePresence, motion } from 'framer-motion'
+import { Info } from 'lucide-react'
+import { Bar, Doughnut } from 'react-chartjs-2'
 import {
   Chart as ChartJS,
   CategoryScale,
   LinearScale,
   BarElement,
+  ArcElement,
   Title,
-  Tooltip,
+  Tooltip as ChartTooltip,
+  Legend,
+} from 'chart.js'
+import { GlassCard } from '@/components/GlassCard'
+
+// Rejestracja Chart.js
+ChartJS.register(
+  CategoryScale,
+  LinearScale,
+  BarElement,
+  ArcElement,
+  Title,
+  ChartTooltip,
   Legend
-} from 'chart.js';
-ChartJS.register(CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend);
+)
+
+type Platform = 'twitter' | 'youtube' | 'tiktok' | 'instagram'
+type ViewMode = 'daily' | 'weekly' | 'monthly'
+
+interface TrendRecordDailyDB {
+  platforma: Platform
+  date: string
+  trendy: { topic: string; description: string; details: string }[]
+}
+
+interface TrendRecordWeeklyDB {
+  platforma: Platform
+  week_start: string
+  weekly_topics: { topic: string; description: string; details: string }[]
+}
+
+interface TrendRecordMonthlyDB {
+  platforma: Platform
+  year: number
+  month: number
+  monthly_topics: { topic: string; description: string; details: string }[]
+}
+
+interface TrendDisplayRecord {
+  platforma: Platform
+  period_label: string
+  trends: { topic: string; description: string; details: string }[]
+}
 
 export default function TrendsPage() {
-  const [platform, setPlatform] = useState<Platform>('twitter');
-  const [viewMode, setViewMode] = useState<ViewMode>('daily');
-  const [records, setRecords] = useState<TrendDisplayRecord[]>([]);
-  const [loading, setLoading] = useState(false);
-
-  // Stan wybranego tematu do modalu: { topic, description, details } lub null
+  const [platform, setPlatform] = useState<Platform>('twitter')
+  const [viewMode, setViewMode] = useState<ViewMode>('daily')
+  const [records, setRecords] = useState<TrendDisplayRecord[]>([])
+  const [loading, setLoading] = useState(false)
   const [selectedTopic, setSelectedTopic] = useState<{
-    topic: string;
-    description: string;
-    details: string;
-  } | null>(null);
+    topic: string
+    description: string
+    details: string
+  } | null>(null)
+  const [expandedLast3, setExpandedLast3] = useState(false)
 
-  // Pobiera dane z odpowiedniej tabeli Supabase w zależności od viewMode
+  // Helper: oblicza numer tygodnia (ISO)
+  const getWeekNumber = (d: Date) => {
+    const target = new Date(d.valueOf())
+    const dayNr = (d.getUTCDay() + 6) % 7
+    target.setUTCDate(target.getUTCDate() - dayNr + 3)
+    const firstThursday = target.valueOf()
+    target.setUTCMonth(0, 1)
+    if (target.getUTCDay() !== 4) {
+      target.setUTCMonth(0, 1 + ((4 - target.getUTCDay()) + 7) % 7)
+    }
+    return 1 + Math.round((firstThursday - target.valueOf()) / (7 * 24 * 3600 * 1000))
+  }
+
+  // Fetch danych z Supabase w zależności od viewMode
   const fetchTrends = async () => {
-    setLoading(true);
-
+    setLoading(true)
     if (viewMode === 'daily') {
-      // 1) Pobieramy z tabeli trends_daily
       const { data, error } = await supabase
         .from<TrendRecordDailyDB>('trends_daily')
         .select('*')
         .eq('platforma', platform)
         .order('date', { ascending: false })
-        .limit(30);
-
-      if (error) {
-        console.error('Błąd pobierania daily:', error.message);
-        setRecords([]);
-      } else if (data) {
+        .limit(30)
+      if (!error && data) {
         const mapped = data.map((row) => ({
           platforma: row.platforma,
           period_label: format(new Date(row.date), 'dd.MM.yyyy', { locale: pl }),
-          trends: row.trendy
-        }));
-        setRecords(mapped);
+          trends: row.trendy,
+        }))
+        setRecords(mapped)
+      } else {
+        console.error(error?.message)
+        setRecords([])
       }
     } else if (viewMode === 'weekly') {
-      // 2) Pobieramy z tabeli trends_weekly
       const { data, error } = await supabase
         .from<TrendRecordWeeklyDB>('trends_weekly')
         .select('*')
         .eq('platforma', platform)
         .order('week_start', { ascending: false })
-        .limit(12);
-
-      if (error) {
-        console.error('Błąd pobierania weekly:', error.message);
-        setRecords([]);
-      } else if (data) {
+        .limit(12)
+      if (!error && data) {
         const mapped = data.map((row) => {
-          const dt = new Date(row.week_start);
-          const weekNumber = getWeekNumber(dt);
+          const dt = new Date(row.week_start)
+          const weekNumber = getWeekNumber(dt)
           return {
             platforma: row.platforma,
-            period_label: `Tydzień ${weekNumber} (${format(dt, 'yyyy', { locale: pl })})`,
-            trends: row.weekly_topics
-          };
-        });
-        setRecords(mapped);
+            period_label: `Tydzień ${weekNumber} (${format(
+              dt,
+              'yyyy',
+              { locale: pl }
+            )})`,
+            trends: row.weekly_topics,
+          }
+        })
+        setRecords(mapped)
+      } else {
+        console.error(error?.message)
+        setRecords([])
       }
     } else {
-      // 3) viewMode === 'monthly'
+      // viewMode === 'monthly'
       const { data, error } = await supabase
         .from<TrendRecordMonthlyDB>('trends_monthly')
         .select('*')
         .eq('platforma', platform)
         .order('year', { ascending: false })
         .order('month', { ascending: false })
-        .limit(12);
-
-      if (error) {
-        console.error('Błąd pobierania monthly:', error.message);
-        setRecords([]);
-      } else if (data) {
+        .limit(12)
+      if (!error && data) {
         const mapped = data.map((row) => {
-          const dt = new Date(row.year, row.month - 1, 1);
+          const dt = new Date(row.year, row.month - 1, 1)
           return {
             platforma: row.platforma,
-            period_label: format(dt, 'LLLL yyyy', { locale: pl }), // np. "Maj 2025"
-            trends: row.monthly_topics
-          };
-        });
-        setRecords(mapped);
+            period_label: format(dt, 'LLLL yyyy', { locale: pl }),
+            trends: row.monthly_topics,
+          }
+        })
+        setRecords(mapped)
+      } else {
+        console.error(error?.message)
+        setRecords([])
       }
     }
-
-    setLoading(false);
-  };
-
-  // Pomoc: numer tygodnia (ISO) dla daty
-  const getWeekNumber = (d: Date) => {
-    const target = new Date(d.valueOf());
-    const dayNr = (d.getUTCDay() + 6) % 7;
-    target.setUTCDate(target.getUTCDate() - dayNr + 3);
-    const firstThursday = target.valueOf();
-    target.setUTCMonth(0, 1);
-    if (target.getUTCDay() !== 4) {
-      target.setUTCMonth(0, 1 + ((4 - target.getUTCDay()) + 7) % 7);
-    }
-    const weekNumber = 1 + Math.round((firstThursday - target.valueOf()) / (7 * 24 * 3600 * 1000));
-    return weekNumber;
-  };
+    setLoading(false)
+  }
 
   useEffect(() => {
-    fetchTrends();
-  }, [platform, viewMode]);
+    fetchTrends()
+  }, [platform, viewMode])
 
-  // Przygotowanie danych do wykresu top 5 (na podstawie liczby wystąpień topic)
-  const chartData = () => {
-    const counter: Record<string, number> = {};
+  // Przygotowuje dane do histogramu (Bar chart)
+  const prepareBarData = () => {
+    const counter: Record<string, number> = {}
     records.forEach((rec) =>
       rec.trends.forEach((t) => {
-        counter[t.topic] = (counter[t.topic] || 0) + 1;
+        counter[t.topic] = (counter[t.topic] || 0) + 1
       })
-    );
+    )
     const sorted = Object.entries(counter)
       .sort(([, a], [, b]) => b - a)
-      .slice(0, 5);
-    const labels = sorted.map(([topic]) => topic);
-    const dataValues = sorted.map(([, count]) => count);
-
+      .slice(0, 5)
+    const labels = sorted.map(([topic]) => topic)
+    const dataValues = sorted.map(([, count]) => count)
     return {
       labels,
       datasets: [
         {
-          label: 'Liczba wystąpień',
+          label:
+            viewMode === 'daily'
+              ? 'Dziennie'
+              : viewMode === 'weekly'
+              ? 'Tygodniowo'
+              : 'Miesięcznie',
           data: dataValues,
-          backgroundColor: 'rgba(59, 130, 246, 0.7)',
-          borderColor: 'rgba(59, 130, 246, 1)',
-          borderWidth: 1
-        }
-      ]
-    };
-  };
+          backgroundColor: [
+            'rgba(99,102,241,0.7)', // indigo-500
+            'rgba(79,70,229,0.7)',  // indigo-600
+            'rgba(129,140,248,0.7)',// indigo-300
+            'rgba(56,189,248,0.7)', // sky-400
+            'rgba(16,185,129,0.7)', // teal-500
+          ],
+          borderColor: [
+            'rgba(99,102,241,1)',
+            'rgba(79,70,229,1)',
+            'rgba(129,140,248,1)',
+            'rgba(56,189,248,1)',
+            'rgba(16,185,129,1)',
+          ],
+          borderWidth: 1,
+        },
+      ],
+    }
+  }
 
-  const chartOptions = {
+  // Przygotowuje dane do wykresu okrągłego (Doughnut chart)
+  const prepareDoughnutData = () => {
+    const counter: Record<string, number> = {}
+    records.forEach((rec) =>
+      rec.trends.forEach((t) => {
+        counter[t.topic] = (counter[t.topic] || 0) + 1
+      })
+    )
+    const sorted = Object.entries(counter)
+      .sort(([, a], [, b]) => b - a)
+      .slice(0, 5)
+    const labels = sorted.map(([topic]) => topic)
+    const dataValues = sorted.map(([, count]) => count)
+    return {
+      labels,
+      datasets: [
+        {
+          data: dataValues,
+          backgroundColor: [
+            'rgba(79,70,229,0.7)',  // indigo-600
+            'rgba(99,102,241,0.7)', // indigo-500
+            'rgba(129,140,248,0.7)',// indigo-300
+            'rgba(56,189,248,0.7)', // sky-400
+            'rgba(16,185,129,0.7)', // teal-500
+          ],
+          borderColor: [
+            'rgba(79,70,229,1)',
+            'rgba(99,102,241,1)',
+            'rgba(129,140,248,1)',
+            'rgba(56,189,248,1)',
+            'rgba(16,185,129,1)',
+          ],
+          borderWidth: 1,
+        },
+      ],
+    }
+  }
+
+  // Wspólne opcje wykresów
+  const commonChartOptions = {
     responsive: true,
     plugins: {
       legend: {
-        position: 'bottom' as const
+        position: 'bottom' as const,
+        labels: { color: '#fff' },
       },
       title: {
         display: true,
-        text:
-          viewMode === 'daily'
-            ? 'Top 5 trendów dnia'
-            : viewMode === 'weekly'
-            ? 'Top 5 tematów tygodnia'
-            : 'Top 5 tematów miesiąca'
-      }
+        color: '#fff',
+        font: { size: 18 },
+      },
+      tooltip: {
+        titleColor: '#fff',
+        bodyColor: '#fff',
+        backgroundColor: 'rgba(0,0,0,0.7)',
+      },
     },
     scales: {
       x: {
-        ticks: { color: '#fff' },
-        grid: { display: false }
+        ticks: { color: '#fff', font: { size: 12 } },
+        grid: { display: false },
       },
       y: {
-        ticks: { color: '#fff' },
-        grid: { color: 'rgba(255,255,255,0.1)' }
-      }
-    }
-  };
+        ticks: { color: '#fff', font: { size: 12 } },
+        grid: { color: 'rgba(255,255,255,0.1)' },
+      },
+    },
+  }
 
   return (
-    <div className="min-h-screen p-6">
+    <div className="min-h-screen bg-abstract py-6 px-6 overflow-x-hidden">
       <div className="mx-auto max-w-6xl space-y-6">
-        {/* Nagłówek z wyborem platformy i trybów */}
-        <div className="flex flex-col md:flex-row md:justify-between items-center border border-white/20 bg-white/10 backdrop-blur-sm rounded-tr-3xl rounded-br-3xl p-4">
+
+        {/* ===== Nagłówek + Filtry ===== */}
+        <GlassCard className="flex flex-col md:flex-row items-center justify-between p-6">
           <h1 className="text-3xl font-bold text-white">TRENDY</h1>
-          <div className="mt-4 md:mt-0 flex space-x-4">
+          <div className="flex flex-col sm:flex-row items-center gap-4 mt-4 md:mt-0">
             <select
               value={platform}
               onChange={(e) => setPlatform(e.target.value as Platform)}
-              className="bg-transparent border border-white/20 rounded-xl text-white px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="
+                bg-indigo-700/30 backdrop-blur-md
+                border border-indigo-500
+                rounded-2xl
+                text-white px-4 py-2
+                focus:outline-none focus:ring-2 focus:ring-indigo-400
+                transition
+              "
             >
               <option value="twitter">Twitter</option>
               <option value="youtube">YouTube</option>
@@ -257,38 +303,45 @@ export default function TrendsPage() {
 
             <button
               onClick={() => setViewMode('daily')}
-              className={`px-4 py-2 rounded-xl ${
+              className={`px-4 py-2 rounded-2xl ${
                 viewMode === 'daily'
-                  ? 'bg-gradient-to-r from-blue-400 via-purple-500 to-pink-500 text-white'
-                  : 'bg-white/10 text-gray-300 hover:bg-white/20 hover:text-white'
+                  ? 'bg-gradient-to-r from-indigo-500 via-purple-600 to-indigo-900 text-white'
+                  : 'bg-indigo-700/30 text-gray-300 hover:bg-indigo-700/50 hover:text-white'
               } transition`}
             >
               Dziennie
             </button>
             <button
               onClick={() => setViewMode('weekly')}
-              className={`px-4 py-2 rounded-xl ${
+              className={`px-4 py-2 rounded-2xl ${
                 viewMode === 'weekly'
-                  ? 'bg-gradient-to-r from-blue-400 via-purple-500 to-pink-500 text-white'
-                  : 'bg-white/10 text-gray-300 hover:bg-white/20 hover:text-white'
+                  ? 'bg-gradient-to-r from-indigo-500 via-purple-600 to-indigo-900 text-white'
+                  : 'bg-indigo-700/30 text-gray-300 hover:bg-indigo-700/50 hover:text-white'
               } transition`}
             >
               Tygodniowo
             </button>
             <button
               onClick={() => setViewMode('monthly')}
-              className={`px-4 py-2 rounded-xl ${
+              className={`px-4 py-2 rounded-2xl ${
                 viewMode === 'monthly'
-                  ? 'bg-gradient-to-r from-blue-400 via-purple-500 to-pink-500 text-white'
-                  : 'bg-white/10 text-gray-300 hover:bg-white/20 hover:text-white'
+                  ? 'bg-gradient-to-r from-indigo-500 via-purple-600 to-indigo-900 text-white'
+                  : 'bg-indigo-700/30 text-gray-300 hover:bg-indigo-700/50 hover:text-white'
               } transition`}
             >
               Miesięcznie
             </button>
-          </div>
-        </div>
 
-        {/* Podtytuł i przycisk Odśwież */}
+            <button
+              onClick={fetchTrends}
+              className="ml-4 px-4 py-2 bg-indigo-600 rounded-2xl text-white hover:bg-indigo-700 transition"
+            >
+              {loading ? 'Ładowanie…' : 'Odśwież'}
+            </button>
+          </div>
+        </GlassCard>
+
+        {/* ===== Podtytuł ===== */}
         <div className="flex justify-between items-center">
           <h2 className="text-xl font-semibold text-white">
             {viewMode === 'daily'
@@ -297,297 +350,385 @@ export default function TrendsPage() {
               ? 'Ostatnie 12 tygodni'
               : 'Ostatnie 12 miesięcy'}
           </h2>
-          <button
-            onClick={fetchTrends}
-            className="px-4 py-2 bg-blue-600 rounded-xl text-white hover:bg-blue-700 transition"
-          >
-            {loading ? 'Ładowanie...' : 'Odśwież'}
-          </button>
         </div>
 
         {/* =========================
-             Widok: Dziennie
+             TRYB: DZIENNIE
         ========================= */}
         {viewMode === 'daily' && (
-          <div>
-            {/* --- Kafelki (Daily) --- */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 lg:grid-cols-4 gap-6">
-              {loading ? (
-                <p className="text-gray-300 col-span-full text-center">Ładowanie...</p>
-              ) : records.length === 0 ? (
-                <p className="text-gray-300 col-span-full text-center">Brak danych do wyświetlenia.</p>
-              ) : (
-                records.map((rec) => (
-                  <div
-                    key={rec.period_label}
-                    className="bg-white/10 border border-white/20 rounded-2xl p-4"
-                  >
-                    <h3 className="text-lg font-semibold text-white mb-2">{rec.period_label}</h3>
-                    <ul className="space-y-2">
-                      {rec.trends.slice(0, 3).map((entry, idx) => (
-                        <li
-                          key={idx}
-                          className="cursor-pointer"
-                          onClick={() => setSelectedTopic(entry)}
-                        >
-                          <p className="text-white font-medium">{entry.topic}</p>
-                          <p className="text-gray-300 text-xs">{entry.description}</p>
-                        </li>
-                      ))}
-                      {rec.trends.length > 3 && (
-                        <li className="text-gray-400 text-xs">…</li>
-                      )}
-                    </ul>
-                  </div>
-                ))
-              )}
-            </div>
-
-            {/* --- Tabela (Daily) --- */}
-            <div className="overflow-x-auto bg-white/10 border border-white/20 rounded-2xl mt-6">
-              <table className="min-w-full text-left text-white">
-                <thead className="bg-white/10">
-                  <tr>
-                    <th className="px-6 py-3 text-sm font-medium">Data</th>
-                    <th className="px-6 py-3 text-sm font-medium">Topic</th>
-                    <th className="px-6 py-3 text-sm font-medium">Krótki opis</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {loading ? (
-                    <tr>
-                      <td colSpan={3} className="px-6 py-4 text-center text-gray-300">
-                        Ładowanie…
-                      </td>
-                    </tr>
-                  ) : records.length === 0 ? (
-                    <tr>
-                      <td colSpan={3} className="px-6 py-4 text-center text-gray-300">
-                        Brak danych do wyświetlenia.
-                      </td>
-                    </tr>
-                  ) : (
-                    records.map((rec) =>
-                      rec.trends.map((entry, idx) => (
-                        <tr
-                          key={`${rec.period_label}-${idx}`}
-                          className="border-b border-white/10 hover:bg-white/10 cursor-pointer"
-                          onClick={() => setSelectedTopic(entry)}
-                        >
-                          <td className="px-6 py-4 align-top">{rec.period_label}</td>
-                          <td className="px-6 py-4 align-top">{entry.topic}</td>
-                          <td className="px-6 py-4 align-top">{entry.description}</td>
-                        </tr>
-                      ))
-                    )
-                  )}
-                </tbody>
-              </table>
-            </div>
-
-            {/* --- Wykres (Daily) --- */}
-            <div className="bg-white/10 border border-white/20 rounded-2xl p-4 mt-6">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            {/* 1) Histogram (Bar) – lewy panel */}
+            <GlassCard className="p-4 border-indigo-500/50">
+              <h3 className="text-lg font-semibold text-white mb-4">
+                Histogram: Top 5 tematów (dni)
+              </h3>
               {loading ? (
                 <p className="text-gray-300 text-center">Ładowanie…</p>
               ) : records.length === 0 ? (
-                <p className="text-gray-300 text-center">Brak danych do wyświetlenia.</p>
+                <p className="text-gray-300 text-center">Brak danych.</p>
               ) : (
-                <Bar data={chartData()} options={chartOptions} />
+                <Bar
+                  data={prepareBarData()}
+                  options={{
+                    ...commonChartOptions,
+                    plugins: {
+                      ...commonChartOptions.plugins,
+                      title: {
+                        ...commonChartOptions.plugins!.title,
+                        text: 'Top 5 tematów (ostatnie 30 dni)',
+                      },
+                    },
+                  }}
+                />
               )}
-            </div>
+            </GlassCard>
+
+            {/* 2) Wykres kołowy (Doughnut) – środek */}
+            <GlassCard className="p-4 border-indigo-500/50">
+              <h3 className="text-lg font-semibold text-white mb-4">
+                Dystrybucja top 5 (dni)
+              </h3>
+              {loading ? (
+                <p className="text-gray-300 text-center">Ładowanie…</p>
+              ) : records.length === 0 ? (
+                <p className="text-gray-300 text-center">Brak danych.</p>
+              ) : (
+                <Doughnut
+                  data={prepareDoughnutData()}
+                  options={{
+                    ...commonChartOptions,
+                    plugins: {
+                      ...commonChartOptions.plugins,
+                      title: {
+                        ...commonChartOptions.plugins!.title,
+                        text: 'Procentowy udział top 5 (ostatnie 30 dni)',
+                      },
+                      legend: {
+                        ...commonChartOptions.plugins!.legend,
+                        position: 'right',
+                      },
+                    },
+                    cutout: '50%',
+                  }}
+                />
+              )}
+            </GlassCard>
+
+            {/* 3) Mini–Tabela: Ostatnie 3 dni – prawy panel */}
+            <GlassCard className="p-4 border-indigo-500/50">
+              <h3 className="text-lg font-semibold text-white mb-4">
+                Ostatnie 3 dni – podgląd
+              </h3>
+              <div className="overflow-x-auto">
+                <table className="min-w-full text-left border-separate border-spacing-0 bg-indigo-900/30 border border-indigo-500 rounded-2xl">
+                  <thead className="bg-indigo-800/40">
+                    <tr>
+                      <th className="px-4 py-2 text-sm font-medium text-white">Data</th>
+                      <th className="px-4 py-2 text-sm font-medium text-white">Topic</th>
+                      <th className="px-4 py-2 text-sm font-medium text-white">Opis</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {loading ? (
+                      <tr>
+                        <td colSpan={3} className="px-4 py-4 text-center text-gray-300">
+                          Ładowanie…
+                        </td>
+                      </tr>
+                    ) : records.length === 0 ? (
+                      <tr>
+                        <td colSpan={3} className="px-4 py-4 text-center text-gray-300">
+                          Brak danych.
+                        </td>
+                      </tr>
+                    ) : (
+                      // Pokazujemy 3 pierwsze dni
+                      records.slice(0, 3).map((rec) =>
+                        rec.trends.map((entry, idx) => (
+                          <tr
+                            key={`${rec.period_label}-${idx}`}
+                            className="border-b border-indigo-700 hover:bg-indigo-800/50 cursor-pointer"
+                            onClick={() => setSelectedTopic(entry)}
+                          >
+                            <td className="px-4 py-2 align-top text-white">
+                              {rec.period_label}
+                            </td>
+                            <td className="px-4 py-2 align-top text-white">{entry.topic}</td>
+                            <td className="px-4 py-2 align-top text-white">
+                              {entry.description}
+                            </td>
+                          </tr>
+                        ))
+                      )
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </GlassCard>
           </div>
         )}
 
         {/* =========================
-             Widok: Tygodniowo
+             TRYB: TYGODNIOWO
         ========================= */}
         {viewMode === 'weekly' && (
-          <div>
-            {/* --- Kafelki (Weekly) --- */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 lg:grid-cols-4 gap-6">
-              {loading ? (
-                <p className="text-gray-300 col-span-full text-center">Ładowanie...</p>
-              ) : records.length === 0 ? (
-                <p className="text-gray-300 col-span-full text-center">Brak danych do wyświetlenia.</p>
-              ) : (
-                records.map((rec) => (
-                  <div
-                    key={rec.period_label}
-                    className="bg-white/10 border border-white/20 rounded-2xl p-4"
-                  >
-                    <h3 className="text-lg font-semibold text-white mb-2">{rec.period_label}</h3>
-                    <ul className="space-y-2">
-                      {rec.trends.slice(0, 3).map((entry, idx) => (
-                        <li
-                          key={idx}
-                          className="cursor-pointer"
-                          onClick={() => setSelectedTopic(entry)}
-                        >
-                          <p className="text-white font-medium">{entry.topic}</p>
-                          <p className="text-gray-300 text-xs">{entry.description}</p>
-                        </li>
-                      ))}
-                      {rec.trends.length > 3 && (
-                        <li className="text-gray-400 text-xs">…</li>
-                      )}
-                    </ul>
-                  </div>
-                ))
-              )}
-            </div>
-
-            {/* --- Tabela (Weekly) --- */}
-            <div className="overflow-x-auto bg-white/10 border border-white/20 rounded-2xl mt-6">
-              <table className="min-w-full text-left text-white">
-                <thead className="bg-white/10">
-                  <tr>
-                    <th className="px-6 py-3 text-sm font-medium">Tydzień</th>
-                    <th className="px-6 py-3 text-sm font-medium">Topic</th>
-                    <th className="px-6 py-3 text-sm font-medium">Krótki opis</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {loading ? (
-                    <tr>
-                      <td colSpan={3} className="px-6 py-4 text-center text-gray-300">
-                        Ładowanie…
-                      </td>
-                    </tr>
-                  ) : records.length === 0 ? (
-                    <tr>
-                      <td colSpan={3} className="px-6 py-4 text-center text-gray-300">
-                        Brak danych do wyświetlenia.
-                      </td>
-                    </tr>
-                  ) : (
-                    records.map((rec) =>
-                      rec.trends.map((entry, idx) => (
-                        <tr
-                          key={`${rec.period_label}-${idx}`}
-                          className="border-b border-white/10 hover:bg-white/10 cursor-pointer"
-                          onClick={() => setSelectedTopic(entry)}
-                        >
-                          <td className="px-6 py-4 align-top">{rec.period_label}</td>
-                          <td className="px-6 py-4 align-top">{entry.topic}</td>
-                          <td className="px-6 py-4 align-top">{entry.description}</td>
-                        </tr>
-                      ))
-                    )
-                  )}
-                </tbody>
-              </table>
-            </div>
-
-            {/* --- Wykres (Weekly) --- */}
-            <div className="bg-white/10 border border-white/20 rounded-2xl p-4 mt-6">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            {/* 1) Histogram (Bar) – lewy panel */}
+            <GlassCard className="p-4 border-indigo-500/50">
+              <h3 className="text-lg font-semibold text-white mb-4">
+                Histogram: Top 5 tematów (tygodnie)
+              </h3>
               {loading ? (
                 <p className="text-gray-300 text-center">Ładowanie…</p>
               ) : records.length === 0 ? (
-                <p className="text-gray-300 text-center">Brak danych do wyświetlenia.</p>
+                <p className="text-gray-300 text-center">Brak danych.</p>
               ) : (
-                <Bar data={chartData()} options={chartOptions} />
+                <Bar
+                  data={prepareBarData()}
+                  options={{
+                    ...commonChartOptions,
+                    plugins: {
+                      ...commonChartOptions.plugins,
+                      title: {
+                        ...commonChartOptions.plugins!.title,
+                        text: 'Top 5 tematów (ostatnie 12 tygodni)',
+                      },
+                    },
+                  }}
+                />
               )}
-            </div>
+            </GlassCard>
+
+            {/* 2) Wykres kołowy (Doughnut) – środek */}
+            <GlassCard className="p-4 border-indigo-500/50">
+              <h3 className="text-lg font-semibold text-white mb-4">
+                Dystrybucja top 5 (tygodnie)
+              </h3>
+              {loading ? (
+                <p className="text-gray-300 text-center">Ładowanie…</p>
+              ) : records.length === 0 ? (
+                <p className="text-gray-300 text-center">Brak danych.</p>
+              ) : (
+                <Doughnut
+                  data={prepareDoughnutData()}
+                  options={{
+                    ...commonChartOptions,
+                    plugins: {
+                      ...commonChartOptions.plugins,
+                      title: {
+                        ...commonChartOptions.plugins!.title,
+                        text: 'Procentowy udział top 5 (ostatnie 12 tygodni)',
+                      },
+                      legend: {
+                        ...commonChartOptions.plugins!.legend,
+                        position: 'right',
+                      },
+                    },
+                    cutout: '50%',
+                  }}
+                />
+              )}
+            </GlassCard>
+
+            {/* 3) Mini–Tabela: Ostatnie 3 tygodnie – prawy panel */}
+            <GlassCard className="p-4 border-indigo-500/50">
+              <h3 className="text-lg font-semibold text-white mb-4">
+                Ostatnie 3 tygodnie – podgląd
+              </h3>
+              <div className="overflow-x-auto">
+                <table className="min-w-full text-left border-separate border-spacing-0 bg-indigo-900/30 border border-indigo-500 rounded-2xl">
+                  <thead className="bg-indigo-800/40">
+                    <tr>
+                      <th className="px-4 py-2 text-sm font-medium text-white">Tydzień</th>
+                      <th className="px-4 py-2 text-sm font-medium text-white">Topic</th>
+                      <th className="px-4 py-2 text-sm font-medium text-white">Opis</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {loading ? (
+                      <tr>
+                        <td colSpan={3} className="px-4 py-4 text-center text-gray-300">
+                          Ładowanie…
+                        </td>
+                      </tr>
+                    ) : records.length === 0 ? (
+                      <tr>
+                        <td colSpan={3} className="px-4 py-4 text-center text-gray-300">
+                          Brak danych.
+                        </td>
+                      </tr>
+                    ) : (
+                      // Pokazujemy 3 pierwsze tygodnie
+                      records.slice(0, 3).map((rec) =>
+                        rec.trends.map((entry, idx) => (
+                          <tr
+                            key={`${rec.period_label}-${idx}`}
+                            className="border-b border-indigo-700 hover:bg-indigo-800/50 cursor-pointer"
+                            onClick={() => setSelectedTopic(entry)}
+                          >
+                            <td className="px-4 py-2 align-top text-white">
+                              {rec.period_label}
+                            </td>
+                            <td className="px-4 py-2 align-top text-white">{entry.topic}</td>
+                            <td className="px-4 py-2 align-top text-white">
+                              {entry.description}
+                            </td>
+                          </tr>
+                        ))
+                      )
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </GlassCard>
           </div>
         )}
 
         {/* =========================
-             Widok: Miesięcznie
+             TRYB: MIESIĘCZNIE (70% / 30%)
         ========================= */}
         {viewMode === 'monthly' && (
-          <div>
-            {/* --- Kafelki (Monthly) --- */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 lg:grid-cols-4 gap-6">
-              {loading ? (
-                <p className="text-gray-300 col-span-full text-center">Ładowanie...</p>
-              ) : records.length === 0 ? (
-                <p className="text-gray-300 col-span-full text-center">Brak danych do wyświetlenia.</p>
-              ) : (
-                records.map((rec) => (
-                  <div
-                    key={rec.period_label}
-                    className="bg-white/10 border border-white/20 rounded-2xl p-4"
-                  >
-                    <h3 className="text-lg font-semibold text-white mb-2">{rec.period_label}</h3>
-                    <ul className="space-y-2">
-                      {rec.trends.slice(0, 3).map((entry, idx) => (
-                        <li
-                          key={idx}
-                          className="cursor-pointer"
-                          onClick={() => setSelectedTopic(entry)}
-                        >
-                          <p className="text-white font-medium">{entry.topic}</p>
-                          <p className="text-gray-300 text-xs">{entry.description}</p>
-                        </li>
-                      ))}
-                      {rec.trends.length > 3 && (
-                        <li className="text-gray-400 text-xs">…</li>
-                      )}
-                    </ul>
-                  </div>
-                ))
-              )}
-            </div>
-
-            {/* --- Tabela (Monthly) --- */}
-            <div className="overflow-x-auto bg-white/10 border border-white/20 rounded-2xl mt-6">
-              <table className="min-w-full text-left text-white">
-                <thead className="bg-white/10">
-                  <tr>
-                    <th className="px-6 py-3 text-sm font-medium">Miesiąc</th>
-                    <th className="px-6 py-3 text-sm font-medium">Topic</th>
-                    <th className="px-6 py-3 text-sm font-medium">Krótki opis</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {loading ? (
-                    <tr>
-                      <td colSpan={3} className="px-6 py-4 text-center text-gray-300">
-                        Ładowanie…
-                      </td>
-                    </tr>
-                  ) : records.length === 0 ? (
-                    <tr>
-                      <td colSpan={3} className="px-6 py-4 text-center text-gray-300">
-                        Brak danych do wyświetlenia.
-                      </td>
-                    </tr>
-                  ) : (
-                    records.map((rec) =>
-                      rec.trends.map((entry, idx) => (
-                        <tr
-                          key={`${rec.period_label}-${idx}`}
-                          className="border-b border-white/10 hover:bg-white/10 cursor-pointer"
-                          onClick={() => setSelectedTopic(entry)}
-                        >
-                          <td className="px-6 py-4 align-top">{rec.period_label}</td>
-                          <td className="px-6 py-4 align-top">{entry.topic}</td>
-                          <td className="px-6 py-4 align-top">{entry.description}</td>
-                        </tr>
-                      ))
-                    )
-                  )}
-                </tbody>
-              </table>
-            </div>
-
-            {/* --- Wykres (Monthly) --- */}
-            <div className="bg-white/10 border border-white/20 rounded-2xl p-4 mt-6">
+          <div className="grid grid-cols-1 lg:grid-cols-[70%_30%] gap-6">
+            {/* ===== Lewa kolumna (70%): Histogram (Bar) ===== */}
+            <GlassCard className="p-4 border-indigo-500/50">
+              <h3 className="text-lg font-semibold text-white mb-4">
+                Histogram: Top 5 tematów (ostatnie 12 miesięcy)
+              </h3>
               {loading ? (
                 <p className="text-gray-300 text-center">Ładowanie…</p>
               ) : records.length === 0 ? (
-                <p className="text-gray-300 text-center">Brak danych do wyświetlenia.</p>
+                <p className="text-gray-300 text-center">Brak danych.</p>
               ) : (
-                <Bar data={chartData()} options={chartOptions} />
+                <Bar
+                  data={prepareBarData()}
+                  options={{
+                    ...commonChartOptions,
+                    plugins: {
+                      ...commonChartOptions.plugins,
+                      title: {
+                        ...commonChartOptions.plugins!.title,
+                        text: 'Top 5 tematów (ostatnie 12 miesięcy)',
+                      },
+                    },
+                  }}
+                />
               )}
+            </GlassCard>
+
+            {/* ===== Prawa kolumna (30%): Doughnut + Rozwijalna lista ===== */}
+            <div className="space-y-6">
+              {/* 1) Wykres kołowy (Doughnut) */}
+              <GlassCard className="p-4 border-indigo-500/50">
+                <h3 className="text-lg font-semibold text-white mb-4">
+                  Dystrybucja top 5 (miesiące)
+                </h3>
+                {loading ? (
+                  <p className="text-gray-300 text-center">Ładowanie…</p>
+                ) : records.length === 0 ? (
+                  <p className="text-gray-300 text-center">Brak danych.</p>
+                ) : (
+                  <Doughnut
+                    data={prepareDoughnutData()}
+                    options={{
+                      ...commonChartOptions,
+                      plugins: {
+                        ...commonChartOptions.plugins,
+                        title: {
+                          ...commonChartOptions.plugins!.title,
+                          text: 'Procentowy udział top 5',
+                        },
+                        legend: {
+                          ...commonChartOptions.plugins!.legend,
+                          position: 'bottom',
+                        },
+                      },
+                      cutout: '60%',
+                    }}
+                  />
+                )}
+              </GlassCard>
+
+              {/* 2) Rozwijalna lista: Ostatnie 3 miesiące */}
+              <GlassCard className="p-4 border-indigo-500/50">
+                <div
+                  className="flex items-center justify-between cursor-pointer"
+                  onClick={() => setExpandedLast3(!expandedLast3)}
+                >
+                  <h3 className="text-lg font-semibold text-white">
+                    Ostatnie 3 miesiące – podgląd
+                  </h3>
+                  <span className="text-indigo-400">
+                    {expandedLast3 ? '▲' : '▼'}
+                  </span>
+                </div>
+
+                <AnimatePresence>
+                  {expandedLast3 && (
+                    <motion.div
+                      initial={{ height: 0, opacity: 0 }}
+                      animate={{ height: 'auto', opacity: 1 }}
+                      exit={{ height: 0, opacity: 0 }}
+                      className="mt-4 overflow-hidden"
+                    >
+                      <div className="overflow-x-auto">
+                        <table className="min-w-full text-left border-separate border-spacing-0 bg-indigo-900/30 border border-indigo-500 rounded-2xl">
+                          <thead className="bg-indigo-800/40">
+                            <tr>
+                              <th className="px-4 py-2 text-sm font-medium text-white">
+                                Miesiąc
+                              </th>
+                              <th className="px-4 py-2 text-sm font-medium text-white">
+                                Topic
+                              </th>
+                              <th className="px-4 py-2 text-sm font-medium text-white">
+                                Opis
+                              </th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {records.slice(0, 3).length === 0 ? (
+                              <tr>
+                                <td
+                                  colSpan={3}
+                                  className="px-4 py-4 text-center text-gray-300"
+                                >
+                                  Brak danych.
+                                </td>
+                              </tr>
+                            ) : (
+                              records.slice(0, 3).map((rec) =>
+                                rec.trends.map((entry, idx) => (
+                                  <tr
+                                    key={`${rec.period_label}-${idx}`}
+                                    className="border-b border-indigo-700 hover:bg-indigo-800/50 cursor-pointer"
+                                    onClick={() => setSelectedTopic(entry)}
+                                  >
+                                    <td className="px-4 py-2 align-top text-white">
+                                      {rec.period_label}
+                                    </td>
+                                    <td className="px-4 py-2 align-top text-white">
+                                      {entry.topic}
+                                    </td>
+                                    <td className="px-4 py-2 align-top text-white">
+                                      {entry.description}
+                                    </td>
+                                  </tr>
+                                ))
+                              )
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </GlassCard>
             </div>
           </div>
         )}
       </div>
 
-      {/* =========================
-           Modal: szczegóły wybranego tematu
-      ========================= */}
+      {/* ===== Modal: Szczegóły wybranego tematu ===== */}
       <AnimatePresence>
         {selectedTopic && (
           <motion.div
@@ -604,9 +745,11 @@ export default function TrendsPage() {
               transition={{ duration: 0.2 }}
             >
               <div className="flex justify-between items-center mb-4">
-                <div className="flex items-center space-x-2">
-                  <Info size={20} className="text-blue-400" />
-                  <h2 className="text-2xl font-semibold text-white">{selectedTopic.topic}</h2>
+                <div className="flex items-center gap-2">
+                  <Info size={20} className="text-indigo-400" />
+                  <h2 className="text-2xl font-semibold text-white">
+                    {selectedTopic.topic}
+                  </h2>
                 </div>
                 <button
                   onClick={() => setSelectedTopic(null)}
@@ -616,14 +759,16 @@ export default function TrendsPage() {
                 </button>
               </div>
               <div className="text-gray-200 space-y-4">
-                <p className="text-gray-300 italic">{selectedTopic.description}</p>
+                <p className="text-gray-300 italic">
+                  {selectedTopic.description}
+                </p>
                 <hr className="border-white/20" />
-                <p>{selectedTopic.details}</p>
+                <p className="text-white">{selectedTopic.details}</p>
               </div>
             </motion.div>
           </motion.div>
         )}
       </AnimatePresence>
     </div>
-  );
+  )
 }

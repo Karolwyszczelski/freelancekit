@@ -1,67 +1,47 @@
 // app/layout.tsx
-'use client';
+'use client'
 
-import './globals.css';
-import Link from 'next/link';
-import { ReactNode } from 'react';
-
-import { SessionProvider } from 'next-auth/react';
-import { AuthProvider } from '@/context/AuthContext';
-import Sidebar from '@/components/sidebar';
+import './globals.css'
+import { SessionProvider } from 'next-auth/react'
+import { AuthProvider } from '@/context/AuthContext'
+import Sidebar from '@/components/sidebar'
+import { usePathname } from 'next/navigation'
+import React from 'react'
 
 interface RootLayoutProps {
-  children: ReactNode;
+  children: React.ReactNode
 }
 
 export default function RootLayout({ children }: RootLayoutProps) {
+  const pathname = usePathname() || ''
+  const isDashboardRoute = pathname.startsWith('/dashboard')
+
   return (
     <html lang="pl">
       <head />
-      {/* 
-        Przypinamy klasę .bg-abstract z globals.css, aby cały body miał 
-        abstrakcyjny neonowo-purpurowy gradient. 
-      */}
       <body className="bg-abstract min-h-screen flex flex-col font-sans">
-        {/* ===========================
-            1) Opcjonalny header z efektem „glassmorphism”
-           =========================== */}
-        <header
-          className="
-            p-4 flex justify-between items-center
-            bg-white/10 backdrop-blur-sm 
-            border-b border-white/20
-          "
-        >
-          <h1 className="text-2xl font-bold text-white">FreelanceKit</h1>
-          <nav className="space-x-4">
-            {/* Używamy Link bez wewnętrznego <a> */}
-            <Link href="/" className="text-white hover:underline">
-              Start
-            </Link>
-            <Link href="/login" className="text-white hover:underline">
-              Logowanie
-            </Link>
-          </nav>
-        </header>
-
-        {/* 
-          2) Najpierw opakowujemy wszystko w SessionProvider, 
-             aby useSession() z next-auth działało poprawnie. 
-          3) Wewnątrz SessionProvider umieszczamy AuthProvider (Twój własny kontekst), 
-             a potem cały układ (Sidebar + główna zawartość).
-        */}
         <SessionProvider>
           <AuthProvider>
             <div className="flex flex-1 overflow-hidden">
-              {/* ===========================
-                  4) Sidebar po lewej
-                 =========================== */}
-              <Sidebar />
+              {/* 
+                WARUNKOWO: Sidebar i „globalny header” (jeśli chciałbyś)
+                mają się wyświetlać tylko w obrębie /dashboard*
+              */}
+              {isDashboardRoute && (
+                <>
+                  {/* ===========================
+                      TU JEST SIDEBAR PO LEWEJ
+                     =========================== */}
+                  <Sidebar />
+                  {/* (opcjonalnie: jeśli chcesz mieć jakiś ekstra header wewnątrz dashboardu, 
+                     możesz tu go wstawić, lub zostawić tylko sidebar) */}
+                </>
+              )}
 
               {/* ===========================
-                  5) Główna zawartość (tu trafiają wszystkie children) 
+                  GŁÓWNA ZAWARTOŚĆ (children)
                  =========================== */}
-              <main className="flex-1 overflow-auto relative">
+              <main className={`${isDashboardRoute ? 'flex-1 overflow-auto relative' : 'w-full'}`}>
                 {children}
               </main>
             </div>
@@ -69,5 +49,5 @@ export default function RootLayout({ children }: RootLayoutProps) {
         </SessionProvider>
       </body>
     </html>
-  );
+  )
 }

@@ -1,17 +1,36 @@
-export default function LandingPage() {
+'use client'
+
+import React from 'react'
+import Navbar from '@/components/Start/Navbar'
+import HeroSection from '@/components/Start/HeroSection'
+
+export default function HomePage() {
   return (
-    <section className="px-6 py-20 max-w-4xl mx-auto text-center space-y-8">
-      <h2 className="text-4xl font-extrabold">Witaj w FreelanceKit</h2>
-      <p className="text-lg">
-        Kompleksowe narzędzie dla freelancerów – CRM, generator ofert, kanban, portfolio i więcej.
-      </p>
-      <a
-        href="/login"
-        className="inline-block px-8 py-4 bg-gradient-to-r from-gradientStart to-gradientEnd rounded-full text-white font-medium"
+    <div className="bg-gray-900 text-white">
+      {/* Navbar */}
+      <Navbar />
+
+      {/* Hero */}
+      <HeroSection />
+
+      {/* Prosta sekcja Kontakt, aby link „Kontakt” działał */}
+      <section
+        id="kontakt"
+        className="bg-gray-800 text-white py-20"
       >
-        Zaloguj się / Zarejestruj
-      </a>
-      {/* Tutaj możesz dorzucić sekcje „Funkcje”, „Cena” itp. */}
-    </section>
+        <div className="max-w-3xl mx-auto px-6 text-center">
+          <h2 className="text-3xl font-bold mb-6">Kontakt</h2>
+          <p className="text-lg mb-4">
+            Masz pytanie? Napisz do nas:
+          </p>
+          <a
+            href="mailto:kontakt@freelancekit.com"
+            className="text-blue-400 hover:underline"
+          >
+            kontakt@freelancekit.com
+          </a>
+        </div>
+      </section>
+    </div>
   )
 }

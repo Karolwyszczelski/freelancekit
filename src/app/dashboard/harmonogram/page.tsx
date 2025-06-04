@@ -511,8 +511,8 @@ export default function SchedulePage() {
             {/* Siatka SVG w tle */}
             <div className="absolute inset-0 pointer-events-none z-0" aria-hidden>
               <svg
-                width="100%"
-                height="100%"
+                width="80%"
+                height="80%"
                 className="w-full h-full"
                 style={{ minHeight: 520 }}
               >

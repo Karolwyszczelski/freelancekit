@@ -182,7 +182,7 @@ export default function TasksPage() {
               items={columns[status].map((t) => t.id)}
               strategy={horizontalListSortingStrategy}
             >
-              <GlassCard className="flex-1 p-4 flex flex-col bg-white/10 backdrop-blur-md hover:backdrop-blur-lg transition-shadow">
+              <GlassCard className="flex-1 p-4 flex flex-col bg-black/10 backdrop-blur-md hover:backdrop-blur-lg transition-shadow">
                 <div className="flex items-center justify-between mb-4">
                   <h3 className="text-lg font-medium text-white">
                     {status === 'todo'

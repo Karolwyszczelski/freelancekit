@@ -1,19 +1,29 @@
 // app/dashboard/page.tsx
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, KeyboardEvent } from 'react'
+import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabaseClient'
 import { useAuth } from '@/context/AuthContext'
-import { format } from 'date-fns'
-import pl from 'date-fns/locale/pl'
+import { parseISO } from 'date-fns'
 
-import TrendWidget from '../../components/TrendWidget'
-import { GlassCard } from '../../components/GlassCard'
-import TasksWidget from '../../components/TasksWidget'
-import ScheduleWidget from '../../components/ScheduleWidget'
+import TrendWidget from '@/components/TrendWidget'
+import { GlassCard } from '@/components/GlassCard'
+import TasksWidget from '@/components/TasksWidget'
+import ScheduleWidget from '@/components/ScheduleWidget'
 import NotificationsWidget from '@/components/NotificationsWidget'
+import { ProjectDeadlinesWidget } from '@/components/ProjectDeadlinesWidget'
 
-import { Calendar, CheckSquare, Bell, FileText, FolderOpen, Calculator } from 'lucide-react'
+import {
+  Calendar,
+  CheckSquare,
+  Bell,
+  FileText,
+  FolderOpen,
+  Calculator,
+  User,
+  Settings,
+} from 'lucide-react'
 import Link from 'next/link'
 
 interface Project {
@@ -28,9 +38,13 @@ interface Project {
 }
 
 export default function DashboardPage() {
+  const router = useRouter()
   const { user } = useAuth()
   const [projects, setProjects] = useState<Project[]>([])
   const [loadingProjects, setLoadingProjects] = useState(false)
+
+  // Wartość zapytania wyszukiwarki
+  const [searchQuery, setSearchQuery] = useState('')
 
   // Metryki
   const [countActive, setCountActive] = useState(0)
@@ -76,8 +90,8 @@ export default function DashboardPage() {
     let sumMonth = 0
 
     allProjects.forEach((p) => {
-      const dl = new Date(p.deadline)
-      const cr = p.created_at ? new Date(p.created_at) : null
+      const dl = parseISO(p.deadline)
+      const cr = p.created_at ? parseISO(p.created_at) : null
 
       // Aktywne: deadline ≥ teraz
       if (dl >= now) cntActive++
@@ -96,12 +110,10 @@ export default function DashboardPage() {
           sumMonth += p.earnings
         }
       } else {
-        // Płatność miesięczna: liczymy, jeśli stworzone ≤ bieżący miesiąc
         if (
           cr &&
           (cr.getFullYear() < currentYear ||
-            (cr.getFullYear() === currentYear &&
-              cr.getMonth() <= currentMonth))
+            (cr.getFullYear() === currentYear && cr.getMonth() <= currentMonth))
         ) {
           sumMonth += p.earnings
         }
@@ -113,165 +125,187 @@ export default function DashboardPage() {
     setEarningsThisMonth(sumMonth)
   }
 
+  // Skróty do najważniejszych funkcji
+  const shortcuts = [
+    {
+      label: 'Generator ofert',
+      href: '/dashboard/oferty',
+      icon: <FileText size={24} />,
+      gradient: 'from-yellow-400 via-orange-400 to-red-400',
+    },
+    {
+      label: 'Generator portfolio',
+      href: '/dashboard/portfolio/new',
+      icon: <FolderOpen size={24} />,
+      gradient: 'from-cyan-400 via-blue-500 to-indigo-500',
+    },
+    {
+      label: 'Kalkulator projektu',
+      href: '/dashboard/kalkulator',
+      icon: <Calculator size={24} />,
+      gradient: 'from-green-400 via-teal-400 to-blue-400',
+    },
+  ]
+
+  // Obsługa naciśnięcia Enter w polu wyszukiwania
+  const handleSearchKey = (e: KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      const query = searchQuery.trim().toLowerCase()
+
+      // Sprawdź, czy query pasuje do etykiety któregoś skrótu
+      const matchedShortcut = shortcuts.find((item) =>
+        item.label.toLowerCase().includes(query)
+      )
+
+      if (matchedShortcut) {
+        // Przenieś na odpowiednią stronę
+        router.push(matchedShortcut.href)
+        return
+      }
+      // W przeciwnym razie, ProjectDeadlinesWidget samo filtrowanie obsługuje po `searchQuery`
+    }
+  }
+
   return (
-    <div className="min-h-screen bg-abstract py-8 px-6 overflow-x-hidden">
-      <div className="mx-auto max-w-7xl space-y-12">
-        {/* ======= Sekcja A: Nagłówek i metryki ======= */}
-        <div className="space-y-4">
-          <h1 className="text-4xl font-bold text-white text-center">
-            Panel Główny
-          </h1>
-          {/* Metryki: 3 kółka */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-8 mt-4">
-            {[
-              {
-                label: 'Aktywne projekty',
-                value: loadingProjects ? '…' : countActive,
-                colorFrom: 'from-cyan-400',
-                colorTo: 'to-blue-500',
-              },
-              {
-                label: 'Zbliżające się Deadliny',
-                value: loadingProjects ? '…' : countUpcoming,
-                colorFrom: 'from-purple-400',
-                colorTo: 'to-pink-500',
-              },
-              {
-                label: 'Zarobki',
-                value: loadingProjects
-                  ? '…'
-                  : `${earningsThisMonth
-                      .toFixed(0)
-                      .replace(/\B(?=(\d{3})+(?!\d))/g, ' ')} zł`,
-                colorFrom: 'from-green-400',
-                colorTo: 'to-teal-500',
-              },
-            ].map((stat, idx) => (
-              <div key={idx} className="relative h-44 w-44 mx-auto">
-                {/* Gradientowa obwódka */}
-                <div
-                  className={`
-                    absolute inset-0
-                    h-44 w-44
-                    rounded-full
-                    bg-gradient-to-r ${stat.colorFrom} ${stat.colorTo}
-                    transform-gpu perspective-1000
-                    shadow-[0_12px_35px_rgba(0,0,0,0.3)]
-                    hover:-translate-y-2 hover:scale-105
-                    transition-all duration-300
-                  `}
-                />
-                {/* Wnętrze (maskujące): półprzezroczyste, by było widać tło “bg-abstract” */}
-                <div
-                  className="
-                    absolute inset-1
-                    h-[170px] w-[170px]
-                    rounded-full
-                    bg-abstract
-                    flex flex-col items-center justify-center
-                  "
-                >
-                  <span className="text-4xl font-extrabold text-white leading-none">
-                    {stat.value}
-                  </span>
-                  <span className="text-sm text-gray-200 mt-1">
-                    {stat.label}
-                  </span>
-                </div>
+    <div className="min-h-screen bg-abstract py-8 px-0 pr-6 overflow-x-hidden">
+      <div className="mx-auto max-w-7xl space-y-3">
+
+        {/* ======= Pasek użytkownika i wyszukiwarka ======= */}
+        <div className="flex flex-col md:flex-row items-center justify-between gap-3">
+          {/* Lewa: ikona profilu + dane */}
+          <div className="flex items-center gap-3">
+            <div
+              className="h-12 w-12
+                         bg-gradient-to-br from-indigo-400 via-purple-400 to-pink-400
+                         p-[2px] rounded-full"
+              title="Profil użytkownika"
+            >
+              <div className="h-full w-full bg-white/20 backdrop-blur-md rounded-full flex items-center justify-center">
+                <User size={24} className="text-white" />
               </div>
-            ))}
+            </div>
+            <div className="flex flex-col">
+              <span className="text-white font-medium text-base truncate">
+                {user?.email}
+              </span>
+              <span className="text-gray-300 text-sm">Profesja</span>
+            </div>
+          </div>
+
+          {/* Środek: wyszukiwarka */}
+          <div className="flex-1 px-2">
+            <input
+              type="text"
+              placeholder="Szukaj..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              onKeyDown={handleSearchKey}
+              className="
+                w-full h-12
+                bg-white/10 backdrop-blur-md 
+                border border-white/10 
+                rounded-full 
+                py-2 px-4 
+                text-white placeholder-gray-400
+                focus:outline-none focus:ring-2 focus:ring-cyan-400
+              "
+              aria-label="Pole wyszukiwania"
+              title="Wpisz 'Generator ofert', 'Generator portfolio' lub 'Kalkulator projektu' i naciśnij Enter"
+            />
+          </div>
+
+          {/* Prawa: ikonki ustawienia i powiadomienia */}
+          <div className="flex items-center gap-3">
+            <button
+              className="h-12 w-12
+                         bg-gradient-to-br from-gray-700/50 via-gray-800/50 to-gray-700/50
+                         backdrop-blur-md rounded-full border border-white/10
+                         flex items-center justify-center
+                         hover:scale-105 hover:bg-gray-700/70 hover:shadow-lg
+                         active:scale-95 active:shadow-sm
+                         transition-all duration-200"
+              aria-label="Powiadomienia"
+              title="Powiadomienia"
+            >
+              <Bell size={24} className="text-white" />
+            </button>
+            <button
+              className="h-12 w-12
+                         bg-gradient-to-br from-gray-700/50 via-gray-800/50 to-gray-700/50
+                         backdrop-blur-md rounded-full border border-white/10
+                         flex items-center justify-center
+                         hover:scale-105 hover:bg-gray-700/70 hover:shadow-lg
+                         active:scale-95 active:shadow-sm
+                         transition-all duration-200"
+              aria-label="Ustawienia"
+              title="Ustawienia"
+            >
+              <Settings size={24} className="text-white" />
+            </button>
           </div>
         </div>
 
-        {/* ======= NOWY BLOK: Skróty do najważniejszych funkcji ======= */}
-        <div className="mt-8">
-          <h2 className="text-2xl font-semibold text-white mb-4 text-center">
-            Skróty do najważniejszych funkcji
-          </h2>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
-            {/* 1) Generator ofert */}
-            <Link
-              href="/dashboard/oferty"
-              className="
-                relative h-32
-                rounded-3xl
-                bg-white/10 backdrop-blur-md border border-white/20
-                flex flex-col items-center justify-center gap-2
-                hover:scale-105
-                transition-transform duration-200
-              "
-            >
-              <div className="
-                h-12 w-12
-                rounded-full
-                bg-gradient-to-r from-yellow-400 via-orange-400 to-red-400
-                flex items-center justify-center
-                text-white text-xl
-                shadow-lg
-              ">
-                <FileText size={24} />
-              </div>
-              <span className="text-white font-medium">Generator ofert</span>
-            </Link>
+        {/* ======= Sekcja Skrótów „Funkcje” ======= */}
+<div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+  {shortcuts.map((item) => (
+    <Link
+      key={item.href}
+      href={item.href}
+      className="
+        relative
+        h-20                    /* trochę niższa wysokość, by pasować do innych kart */
+        rounded-2xl
+        bg-white/10 
+        backdrop-blur-md 
+        border border-white/20
+        shadow-[0_8px_24px_rgba(0,0,0,0.3)]
+        flex items-center justify-center gap-3
+        hover:scale-105 hover:shadow-[0_12px_35px_rgba(0,0,0,0.5)]
+        active:scale-95 active:shadow-[0_4px_12px_rgba(0,0,0,0.2)]
+        transition-all duration-200
+      "
+      aria-label={item.label}
+    >
+      {/* Kolorowy akcent: cienka pionowa belka */}
+      <div className="absolute inset-y-0 left-0 w-1 bg-gradient-to-b from-purple-400 to-indigo-500 rounded-l-2xl" />
 
-            {/* 2) Generator portfolio */}
-            <Link
-              href="/dashboard/portfolio-wizard"
-              className="
-                relative h-32
-                rounded-3xl
-                bg-white/10 backdrop-blur-md border border-white/20
-                flex flex-col items-center justify-center gap-2
-                hover:scale-105
-                transition-transform duration-200
-              "
-            >
-              <div className="
-                h-12 w-12
-                rounded-full
-                bg-gradient-to-r from-cyan-400 via-blue-500 to-indigo-500
-                flex items-center justify-center
-                text-white text-xl
-                shadow-lg
-              ">
-                <FolderOpen size={24} />
-              </div>
-              <span className="text-white font-medium">Generator portfolio</span>
-            </Link>
-
-            {/* 3) Kalkulator projektu */}
-            <Link
-              href="/dashboard/kalkulator"
-              className="
-                relative h-32
-                rounded-3xl
-                bg-white/10 backdrop-blur-md border border-white/20
-                flex flex-col items-center justify-center gap-2
-                hover:scale-105
-                transition-transform duration-200
-              "
-            >
-              <div className="
-                h-12 w-12
-                rounded-full
-                bg-gradient-to-r from-green-400 via-teal-400 to-blue-400
-                flex items-center justify-center
-                text-white text-xl
-                shadow-lg
-              ">
-                <Calculator size={24} />
-              </div>
-              <span className="text-white font-medium">Kalkulator projektu</span>
-            </Link>
-          </div>
+      {/* Treść wewnątrz */}
+      <div className="flex items-center gap-3 z-10">
+        {/* Ikona w kółku */}
+        <div
+          className="
+            h-10 w-10
+            rounded-full
+            bg-gradient-to-br from-purple-500 via-indigo-500 to-cyan-500
+            flex items-center justify-center
+            text-white
+            shadow-lg
+          "
+          title={item.label}
+        >
+          {item.icon}
         </div>
+        {/* Etykieta */}
+        <span className="text-white font-semibold text-base drop-shadow-md">
+          {item.label}
+        </span>
+      </div>
+    </Link>
+  ))}
+</div>
 
-        {/* ======= Sekcja B: Widgety ======= */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-          {/* ––––– Trendy na 2025 ––––– */}
-          <GlassCard className="h-[22rem] p-6 flex flex-col col-span-1">
-            <h2 className="text-white text-2xl font-semibold mb-4 flex items-center gap-2">
-              <span className="block w-1 h-6 bg-gradient-to-b from-blue-400 to-cyan-400 rounded"></span>
+        {/* ======= Sekcja „Deadline projektów” (pełna szerokość) ======= */}
+        <ProjectDeadlinesWidget
+          projects={projects}
+          searchQuery={searchQuery}
+        />
+
+        {/* ======= Trzeci wiersz: Grid 3 kolumnowy ======= */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          {/* Trendy na 2025 */}
+          <GlassCard className="h-[22rem] p-6 flex flex-col">
+            <h2 className="text-white text-2xl font-semibold mb-4 flex items-center gap-3 border-b border-white/10 pb-2">
+              <span className="block w-1 h-6 bg-gradient-to-b from-blue-400 to-cyan-400 rounded" />
               Trendy na 2025
             </h2>
             <div className="flex-1 flex items-center justify-center">
@@ -279,35 +313,25 @@ export default function DashboardPage() {
             </div>
           </GlassCard>
 
-          {/* ––––– Harmonogram ––––– */}
-          <GlassCard className="h-[22rem] p-6 flex flex-col col-span-1">
-            <h2 className="text-white text-2xl font-semibold mb-4 flex items-center gap-2">
-              <Calendar className="w-6 h-6 text-cyan-400" /> Harmonogram
+          {/* Harmonogram */}
+          <GlassCard className="h-[22rem] p-6 flex flex-col">
+            <h2 className="text-white text-2xl font-semibold mb-4 flex items-center gap-3 border-b border-white/10 pb-2">
+              <Calendar className="w-7 h-7 text-cyan-400" /> Harmonogram
             </h2>
             <div className="flex-1">
               <ScheduleWidget />
             </div>
           </GlassCard>
 
-          {/* ––––– Kolumna z Zadaniami i Powiadomieniami ––––– */}
-          <div className="flex flex-col gap-8 col-span-1">
-            {/* Zadania */}
-            <GlassCard className="h-[10rem] p-5 flex flex-col">
-              <h2 className="text-white text-xl font-semibold mb-3 flex items-center gap-2">
-                <CheckSquare className="w-5 h-5 text-green-400" /> Zadania
+          {/* Powiadomienia i Zadania (stackowane) */}
+          <div className="flex flex-col gap-3">
+            
+            <GlassCard className="h-[22rem] p-5 flex flex-col">
+              <h2 className="text-white text-xl font-semibold mb-3 flex items-center gap-3 border-b border-white/10 pb-2">
+                <CheckSquare className="w-6 h-6 text-green-400" /> Zadania
               </h2>
               <div className="flex-1 overflow-auto">
                 <TasksWidget small />
-              </div>
-            </GlassCard>
-
-            {/* Powiadomienia */}
-            <GlassCard className="h-[10rem] p-5 flex flex-col">
-              <h2 className="text-white text-xl font-semibold mb-3 flex items-center gap-2">
-                <Bell className="w-5 h-5 text-red-400" /> Powiadomienia
-              </h2>
-              <div className="flex-1 overflow-auto">
-                <NotificationsWidget userId={user?.id || ''} small />
               </div>
             </GlassCard>
           </div>

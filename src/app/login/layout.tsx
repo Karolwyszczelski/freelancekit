@@ -1,16 +1,26 @@
 // app/login/layout.tsx
-'use client';
-import { ReactNode } from 'react'
 
-export default function LoginLayout({ children }: { children: ReactNode }) {
+// UWAGA: NIE importujemy tu ponownie `globals.css`! 
+//      One już są wczytane w root‐layout (app/layout.tsx),
+//      więc wystarczy, że opakujemy dzieci w wrapper.
+export const metadata = {
+  title: 'Logowanie • FreelanceKit',
+}
+
+export default function LoginLayout({ children }: { children: React.ReactNode }) {
   return (
-    <div
-      className="
-        min-h-screen flex items-center justify-center
-        bg-gradient-to-br from-blue-500 via-indigo-600 to-purple-700
-      "
-    >
-      {children}
-    </div>
+    <>
+      {/* 
+        Nie ma tutaj <html> ani <body>, bo to robi root‐layout. 
+        Root‐layout załaduje globals.css, więc tło już będą mieliśmy. 
+      */}
+      <div className="min-h-screen flex items-center justify-center">
+        {/* 
+          Ten <div> może mieć np. klasę, która dodaje lekki overlay,
+          blur, cokolwiek chcesz – ale i tak „w tle” widoczne jest tło z globals.css.
+        */}
+        {children}
+      </div>
+    </>
   )
 }
