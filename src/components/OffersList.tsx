@@ -2,6 +2,20 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabaseClient'
 
+async function getOffers() {
+  const { data, error } = await supabase
+    .from('offers')
+    .select('*')
+    .order('created_at', { ascending: false })
+
+  if (error) {
+    console.error('Błąd pobierania ofert:', error.message)
+    return []
+  }
+
+  return data || []
+}
+
 export default function OffersList({ onSelect }) {
   const [offers, setOffers] = useState([])
   useEffect(() => {
