@@ -12,6 +12,11 @@ export interface PortfolioBase {
   contact_email?: string | null;
   contact_phone?: string | null;
   socials?: { [k: string]: string } | null;
+  settings?: {
+    basicColorChoice?: 'light' | 'dark';
+    fontFamily?: string;
+    buttonStyle?: 'rounded' | 'square';
+  } | null;
   created_at?: string;
   updated_at?: string;
 }
