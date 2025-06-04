@@ -262,9 +262,10 @@ export default function PortfolioCreatorPage() {
             }, {} as { [k: string]: string }), // premium: dynamiczne linki
       // Dodatkowo w tabeli portfolio można zapisać czcionkę i styl przycisków (pole JSON)
       // Zakładamy, że kolumna `settings` w PortfolioBase to JSONB
-      settings: templateId === 3
-        ? { fontFamily, buttonStyle }
-        : null,
+      settings:
+        templateId === 3
+          ? { fontFamily, buttonStyle }
+          : { basicColorChoice },
     };
 
     // 6.3) Jeżeli edytujemy – UPDATE, w przeciwnym razie – INSERT
@@ -489,6 +490,9 @@ export default function PortfolioCreatorPage() {
       setBasicInstagram((port.socials as any)?.instagram || '');
       setBasicLinkedin((port.socials as any)?.linkedin || '');
       setSocials({ github: '', twitter: '', website: '' });
+      setBasicColorChoice(
+        ((port as any).settings?.basicColorChoice as 'light' | 'dark') || 'light'
+      );
     } else {
       setBasicFacebook('');
       setBasicInstagram('');
@@ -529,7 +533,9 @@ export default function PortfolioCreatorPage() {
       setPrimaryColor('#4f46e5');
       setSecondaryColor('#9333ea');
       setButtonColor('#ef4444');
-      setBasicColorChoice('light');
+      if (port.template_id !== 1 && port.template_id !== 2) {
+        setBasicColorChoice('light');
+      }
       setFontFamily('sans-serif');
       setButtonStyle('rounded');
     }
